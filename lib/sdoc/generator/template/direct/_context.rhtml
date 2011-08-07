@@ -26,9 +26,7 @@
 
     <% 
         list = context.method_list
-        unless @options.show_all
-            list = list.find_all {|m| m.visibility == :public || m.visibility == :protected || m.force_documentation }
-        end
+        list = list.find_all {|m| m.visibility == :public || m.visibility == :protected || m.force_documentation }
     %>
     <% unless list.empty? %>
     <div class="sectiontitle">Methods</div>
@@ -118,7 +116,7 @@
         next if visibilities.empty?
         visibilities.each do |visibility, methods|
             next if methods.empty? 
-            next unless @options.show_all || visibility == :public || visibility == :protected || methods.any? {|m| m.force_documentation }
+            next unless visibility == :public || visibility == :protected || methods.any? {|m| m.force_documentation }
             %>
             <div class="sectiontitle"><%= type.capitalize %> <%= visibility.to_s.capitalize %> methods</div>
             <% methods.each do |method| %>
@@ -149,6 +147,7 @@
                     <p class="source-link">
                         Source: <a href="javascript:toggleSource('<%= method.aref %>_source')" id="l_<%= method.aref %>_source">show</a>
                         <% 
+                            if options.github
                             if markup =~ /File\s(\S+), line (\d+)/
                                 path = $1
                                 line = $2.to_i
@@ -157,7 +156,7 @@
                             if github
                         %>
                         | <a href="<%= "#{github}#L#{line}" %>" target="_blank" class="github_url">on GitHub</a>
-                        <% end %>
+                        <% end end %>
                     </p>
                     <div id="<%= method.aref %>_source" class="dyn-source">
                         <pre><%= method.markup_code %></pre>
