@@ -1,11 +1,19 @@
+require 'rubygems'
 require 'erb'
 require 'pathname'
 require 'fileutils'
+if Gem.available? "json"
+  gem "json", ">= 1.1.3"
+else
+  gem "json_pure", ">= 1.1.3"
+end
 require 'json'
 
 require 'sdoc/github'
 require 'sdoc/templatable'
 require 'sdoc/helpers'
+require 'rdoc'
+require 'rdoc/rdoc'
 require 'rdoc/generator'
 
 class RDoc::ClassModule
@@ -107,8 +115,6 @@ class RDoc::Generator::SDoc
     FILE_DIR
   end
 
-
-  protected
   def self.template_dir_for template
     $LOAD_PATH.map do |path|
       GENERATOR_DIRS.map do |dir|
@@ -119,6 +125,8 @@ class RDoc::Generator::SDoc
     end
   end
 
+
+  protected
   ### Output progress information if debugging is enabled
   def debug_msg( *msg )
     return unless $DEBUG_RDOC

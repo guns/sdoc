@@ -2,7 +2,13 @@ require 'optparse'
 require 'pathname'
 require 'fileutils'
 
-require 'sdoc/json_backend'
+if Gem.available? "json"
+  gem "json", ">= 1.1.3"
+else
+  gem "json_pure", ">= 1.1.3"
+end
+require 'json'
+
 require 'sdoc/templatable'
 
 class SDoc::Merge
@@ -16,7 +22,7 @@ class SDoc::Merge
     @op_dir = 'doc'
     @title = ''
     @directories = []
-    template_dir = RDoc::Generator::SHtml.template_dir('merge')
+    template_dir = RDoc::Generator::SDoc.template_dir_for('merge')
 		@template_dir = Pathname.new File.expand_path(template_dir)
   end
   
@@ -51,8 +57,9 @@ class SDoc::Merge
         @title = v
       end
       
-      opt.on("-u", "--urls [URLS]", "Paths to merged docs. If you \n" +
-                   "set this files and classes won't be actualy copied to merged build") do |v|
+      opt.on("-u", "--urls [URLS]", "Paths to merged docs. If you",
+                   "set this files and classes won't be actualy",
+                   "copied to merged build") do |v|
         @urls = v.split(' ').map{|name| name.strip }
       end
     end
