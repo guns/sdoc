@@ -5,15 +5,14 @@
 <head>
     <title><%= h file.name %></title>
     <meta http-equiv="Content-Type" content="text/html; charset=<%= @options.charset %>" />
-    <link rel="stylesheet" href="<%= "#{rel_prefix}/css/reset.css" %>" type="text/css" media="screen" />
-    <link rel="stylesheet" href="<%= "#{rel_prefix}/css/main.css" %>" type="text/css" media="screen" />
-    <script src="<%= "#{rel_prefix}/js/jquery-1.3.2.min.js" %>" type="text/javascript" charset="utf-8"></script>
-    <script src="<%= "#{rel_prefix}/js/jquery-effect.js" %>" type="text/javascript" charset="utf-8"></script>
-    <script src="<%= "#{rel_prefix}/js/main.js" %>" type="text/javascript" charset="utf-8"></script>
+    <%= include_template '_head.rhtml', {:rel_prefix => rel_prefix} %>
 </head>
 
 <body>     
     <div class="banner">
+        <% if ENV['HORO_PROJECT_NAME'] %>
+            <span><%= ERB::Util.html_escape(ENV['HORO_PROJECT_NAME']) %> <%= ERB::Util.html_escape(ENV['HORO_PROJECT_VERSION']) %></span><br />
+        <% end %>
         <h1>
             <%= h file.name %>
         </h1>
