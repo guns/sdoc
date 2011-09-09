@@ -2,12 +2,14 @@ require 'rubygems'
 require 'erb'
 require 'pathname'
 require 'fileutils'
+require 'rdoc/markup/to_html'
 if Gem.available? "json"
   gem "json", ">= 1.1.3"
 else
   gem "json_pure", ">= 1.1.3"
 end
 require 'json'
+require 'sanitize'
 
 require 'sdoc/github'
 require 'sdoc/templatable'
@@ -29,6 +31,77 @@ end
 class RDoc::Options
   attr_accessor :github
   attr_accessor :se_index
+end
+
+class RDoc::AnyMethod
+
+  TITLE_AFTER = %w(def class module)
+
+  ##
+  # Turns the method's token stream into HTML.
+  #
+  # Prepends line numbers if +add_line_numbers+ is true.
+
+  def sdoc_markup_code
+    return '' unless @token_stream
+
+    src = ""
+    starting_title = false
+
+    @token_stream.each do |t|
+      next unless t
+
+      style = case t
+              when RDoc::RubyToken::TkFLOAT    then 'ruby-number'
+              when RDoc::RubyToken::TkINTEGER  then 'ruby-number'
+              when RDoc::RubyToken::TkCONSTANT then 'ruby-constant'
+              when RDoc::RubyToken::TkKW       then 'ruby-keyword'
+              when RDoc::RubyToken::TkIVAR     then 'ruby-ivar'
+              when RDoc::RubyToken::TkOp       then 'ruby-operator'
+              when RDoc::RubyToken::TkId       then 'ruby-identifier'
+              when RDoc::RubyToken::TkNode     then 'ruby-node'
+              when RDoc::RubyToken::TkCOMMENT  then 'ruby-comment'
+              when RDoc::RubyToken::TkREGEXP   then 'ruby-regexp'
+              when RDoc::RubyToken::TkSTRING   then 'ruby-string'
+              when RDoc::RubyToken::TkVal      then 'ruby-value'
+              end
+
+      if RDoc::RubyToken::TkId === t && starting_title
+        starting_title = false
+        style = 'ruby-keyword ruby-title'
+      end
+
+      if RDoc::RubyToken::TkKW === t && TITLE_AFTER.include?(t.text)
+        starting_title = true
+      end
+
+      text = CGI.escapeHTML t.text
+
+      if style then
+        src << "<span class=\"#{style}\">#{text}</span>"
+      else
+        src << text
+      end
+    end
+
+    # dedent the source
+    indent = src.length
+    lines = src.lines.to_a
+    lines.shift if src =~ /\A.*#\ *File/i # remove '# File' comment
+    lines.each do |line|
+      if line =~ /^ *(?=\S)/
+        n = $&.length
+        indent = n if n < indent
+        break if n == 0
+      end
+    end
+    src.gsub!(/^#{' ' * indent}/, '') if indent > 0
+
+    add_line_numbers(src) if self.class.add_line_numbers
+
+    src
+  end
+
 end
 
 class RDoc::Generator::SDoc
@@ -76,7 +149,6 @@ class RDoc::Generator::SDoc
 
     opt.on("--no-se-index", "-ns",
            "Do not generated index file for search engines.",
-           "",
            "SDoc uses javascript to refrence individual documentation pages.",
            "Search engine crawlers are not smart enough to find all the",
            "referenced pages.",
@@ -86,6 +158,7 @@ class RDoc::Generator::SDoc
       options.se_index = false
     end
     opt.separator nil
+
   end
 
   def initialize(options)
@@ -94,15 +167,8 @@ class RDoc::Generator::SDoc
       @options.diagram = false
     end
     @github_url_cache = {}
-    @options.template = 'direct' if @options.template == 'sdoc'
-    template = @options.template
 
-    templ_dir = self.class.template_dir_for template
-
-    raise RDoc::Error, "could not find template #{template.inspect}" unless
-    templ_dir
-
-    @template_dir = Pathname.new File.expand_path(templ_dir)
+    @template_dir = Pathname.new(options.template_dir)
     @basedir = Pathname.pwd.expand_path
   end
 
@@ -129,17 +195,6 @@ class RDoc::Generator::SDoc
     FILE_DIR
   end
 
-  def self.template_dir_for template
-    $LOAD_PATH.map do |path|
-      GENERATOR_DIRS.map do |dir|
-        File.join path, dir, 'template', template
-      end
-    end.flatten.find do |dir|
-      File.directory? dir
-    end
-  end
-
-
   protected
   ### Output progress information if debugging is enabled
   def debug_msg( *msg )
@@ -159,14 +214,17 @@ class RDoc::Generator::SDoc
   end
 
   ### Recursivly build class tree structure
-  def generate_class_tree_level(classes)
+  def generate_class_tree_level(classes, visited = {})
     tree = []
-    classes.select{|c| c.with_documentation? }.sort.each do |klass|
+    classes.select do |klass| 
+      !visited[klass] && klass.with_documentation? 
+    end.sort.each do |klass|
+      visited[klass] = true
       item = [
         klass.name,
         klass.document_self_or_methods ? klass.path : '',
         klass.module? ? '' : (klass.superclass ? " < #{String === klass.superclass ? klass.superclass : klass.superclass.full_name}" : ''),
-        generate_class_tree_level(klass.classes_and_modules)
+        generate_class_tree_level(klass.classes_and_modules, visited)
       ]
       tree << item
     end
@@ -204,6 +262,7 @@ class RDoc::Generator::SDoc
     @files.select { |file|
       file.document_self
     }.sort.each do |file|
+      debug_msg "    #{file.path}"
       index[:searchIndex].push( search_string(file.name) )
       index[:longSearchIndex].push( search_string(file.path) )
       index[:info].push([
@@ -220,11 +279,11 @@ class RDoc::Generator::SDoc
   ### Add classes to search +index+ array
   def add_class_search_index(index)
     debug_msg "  generating class search index"
-
-    @classes.select { |klass|
+    @classes.uniq.select { |klass|
       klass.document_self_or_methods
     }.sort.each do |klass|
       modulename = klass.module? ? '' : (klass.superclass ? (String === klass.superclass ? klass.superclass : klass.superclass.full_name) : '')
+      debug_msg "    #{klass.parent.full_name}::#{klass.name}"
       index[:searchIndex].push( search_string(klass.name) )
       index[:longSearchIndex].push( search_string(klass.parent.full_name) )
       files = klass.in_files.map{ |file| file.absolute_name }
@@ -243,7 +302,7 @@ class RDoc::Generator::SDoc
   def add_method_search_index(index)
     debug_msg "  generating method search index"
 
-    list = @classes.map do |klass|
+    list = @classes.uniq.map do |klass|
       klass.method_list
     end.flatten.sort do |a, b|
       a.name == b.name ?
@@ -257,6 +316,7 @@ class RDoc::Generator::SDoc
     end
 
     list.each do |method|
+      debug_msg "    #{method.full_name}"
       index[:searchIndex].push( search_string(method.name) + '()' )
       index[:longSearchIndex].push( search_string(method.parent.full_name) )
       index[:info].push([
@@ -300,12 +360,22 @@ class RDoc::Generator::SDoc
     end
   end
 
-  def index_file
-    if @options.main_page && file = @files.find { |f| f.full_name == @options.main_page }
-      file
-    else
-      @files.first
+  ### Determines index path based on @options.main_page (or lack thereof)
+  def index_path
+    # Break early to avoid a big if block when no main page is specified
+    default = @files.first.path
+    return default unless @options.main_page
+
+    # Handle attempts to hit class docs directly
+    if @options.main_page.include?("::")
+      return "%s/%s.html" % [class_dir, @options.main_page.gsub("::", "/")]
     end
+    if file = @files.find { |f| f.full_name == @options.main_page }
+      return file.path
+    end
+
+    # Nothing else worked, so stick with the default
+    return default
   end
 
   ### Create index.html with frameset
@@ -313,7 +383,6 @@ class RDoc::Generator::SDoc
     debug_msg "Generating index file in #@outputdir"
     templatefile = @template_dir + 'index.rhtml'
     outfile      = @outputdir + 'index.html'
-    index_path   = index_file.path
 
     self.render_template( templatefile, binding(), outfile )
   end
@@ -329,6 +398,7 @@ class RDoc::Generator::SDoc
 
   ### Strip comments on a space after 100 chars
   def snippet(str)
+
     str ||= ''
     if str =~ /^(?>\s*)[^\#]/
       content = str
@@ -336,6 +406,8 @@ class RDoc::Generator::SDoc
       content = str.gsub(/^\s*(#+)\s*/, '')
     end
 
+    # Get a plain string with no markup.
+    content = Sanitize.clean(RDoc::Markup::ToHtml.new.convert(content))
     content = content.sub(/^(.{100,}?)\s.*/m, "\\1").gsub(/\r?\n/m, ' ')
 
     begin
